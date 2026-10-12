@@ -1161,6 +1161,44 @@ var UTIL = require('../../lib/util');
       });
     });
 
+    describe('DigestInfo: parámetros NULL sin contenido', function() {
+      // Firma DER sintético con la clave de prueba ya existente; no representa
+      // una falsificación completa sin acceso a una clave privada.
+      var asn = require('../../lib/asn1');
+      var privateKey = PKI.privateKeyFromPem(_pem.privateKey);
+      var publicKey = PKI.publicKeyFromPem(_pem.publicKey);
+      function make(type, value, constructed) {
+        return asn.create(asn.Class.UNIVERSAL, type, !!constructed, value);
+      }
+      ['sha1', 'sha224', 'sha256', 'sha384', 'sha512'].forEach(function(algorithm) {
+        it('conserva NULL vacío/ausente y rechaza contenido con ' + algorithm,
+          function() {
+            // Digest ficticio del tamaño correcto: se prueba la estructura DER.
+            var lengths = {sha1: 20, sha224: 28, sha256: 32, sha384: 48, sha512: 64};
+            var digest = UTIL.fillString('d', lengths[algorithm]);
+            [null, '', 'X', UTIL.fillString('X', 16)].forEach(function(parameter) {
+              var fields = [make(asn.Type.OID,
+                asn.oidToDer(PKI.oids[algorithm]).getBytes())];
+              if(parameter !== null) {
+                fields.push(make(asn.Type.NULL, parameter));
+              }
+              var info = make(asn.Type.SEQUENCE, [
+                make(asn.Type.SEQUENCE, fields, true),
+                make(asn.Type.OCTETSTRING, digest)
+              ], true);
+              var signature = RSA.encrypt(asn.toDer(info).getBytes(), privateKey, 1);
+              if(parameter === null || parameter === '') {
+                ASSERT.equal(publicKey.verify(digest, signature), true);
+              } else {
+                ASSERT.throws(function() {
+                  publicKey.verify(digest, signature);
+                }, /DigestInfo/);
+              }
+            });
+          });
+      });
+    });
+
     describe('GHSA-ppp5-5v6c-4jwp DigestInfo/padding checks', function() {
       // https://github.com/digitalbazaar/forge/security/advisories/GHSA-ppp5-5v6c-4jwp
       // test vectors generated from /tests/pocs/ghsa-ppp5-5v6c-4jwp.js
